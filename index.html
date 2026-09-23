@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>iMAGi Warp</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --ink: #231f20;
+    --panel: rgba(255, 255, 255, 0.92);
+    --line: rgba(35, 31, 32, 0.12);
+    --muted: rgba(35, 31, 32, 0.55);
+    --accent: #3d6bff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
+  body { font: 11px/1.3 ui-sans-serif, system-ui, -apple-system, sans-serif; color: var(--ink); }
+
+  #stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  #guide { fill: none; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 4 4; opacity: 0.5; vector-effect: non-scaling-stroke; }
+  .handle { fill: #fff; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; cursor: grab; }
+  .handle:active { cursor: grabbing; }
+  body.no-guides #guide, body.no-guides .handle { display: none; }
+
+  #panel {
+    position: fixed; top: 12px; right: 12px; width: 196px;
+    background: var(--panel); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    border: 1px solid var(--line); border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+    padding: 8px 10px 10px; user-select: none;
+  }
+  #panel header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  #panel h1 { font-size: 11px; font-weight: 600; margin: 0; letter-spacing: 0.02em; }
+  #collapse { border: 0; background: none; padding: 0 2px; font-size: 13px; line-height: 1; color: var(--muted); cursor: pointer; }
+  #panel.collapsed .body { display: none; }
+  #panel.collapsed header { margin-bottom: 0; }
+
+  .group { margin-top: 8px; }
+  .group-title { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 3px; display: flex; justify-content: space-between; align-items: center; }
+  .group-title label { text-transform: none; letter-spacing: 0; font-size: 10.5px; display: flex; align-items: center; gap: 3px; cursor: pointer; }
+
+  .row { display: grid; grid-template-columns: 38px 1fr 28px; align-items: center; gap: 6px; height: 18px; }
+  .row span:first-child { color: var(--muted); }
+  .row output { text-align: right; font-variant-numeric: tabular-nums; }
+
+  input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 14px; background: transparent; margin: 0; cursor: pointer; }
+  input[type=range]::-webkit-slider-runnable-track { height: 2px; background: var(--line); border-radius: 1px; }
+  input[type=range]::-moz-range-track { height: 2px; background: var(--line); border-radius: 1px; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 10px; height: 10px; margin-top: -4px; border-radius: 50%; background: var(--ink); border: 0; }
+  input[type=range]::-moz-range-thumb { width: 10px; height: 10px; border-radius: 50%; background: var(--ink); border: 0; }
+  input[type=checkbox] { margin: 0; width: 11px; height: 11px; accent-color: var(--ink); }
+
+  .actions { display: flex; gap: 6px; margin-top: 10px; }
+  .actions button { flex: 1; font: inherit; padding: 4px 0; border: 1px solid var(--line); border-radius: 5px; background: #fff; color: var(--ink); cursor: pointer; }
+  .actions button:hover { border-color: var(--muted); }
+</style>
+</head>
+<body>
+
+<svg id="stage" xmlns="http://www.w3.org/2000/svg">
+  <path id="guide"/>
+  <path id="mark" fill="#231F20"/>
+  <g id="handles"></g>
+</svg>
+
+<div id="panel">
+  <header>
+    <h1>iMAGi Warp</h1>
+    <button id="collapse" title="Collapse">–</button>
+  </header>
+  <div class="body">
+    <div class="group">
+      <div class="group-title">Corners</div>
+      <div id="corner-rows"></div>
+    </div>
+    <div class="group">
+      <div class="group-title">
+        Bulge
+        <label title="Move top and bottom together"><input type="checkbox" id="link"> Link</label>
+      </div>
+      <div id="bulge-rows"></div>
+    </div>
+    <div class="group">
+      <div class="group-title">
+        View
+        <label><input type="checkbox" id="guides" checked> Guides</label>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="reset">Reset</button>
+      <button id="export">Export SVG</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Letter paths from Figma frame "213" ([INT] - imagi Brand Design, node 353:1742)
+const GLYPHS = [
+  "M822.155 517.636C819.681 523.824 815.977 534.84 811.81 550.158C811.651 550.739 811.122 551.148 810.527 551.148C809.918 551.148 809.389 550.725 809.23 550.145C805.156 534.84 801.544 523.995 798.978 517.728L781.952 476.168C780.933 473.688 778.512 472.065 775.827 472.065H723.559C721.363 472.065 719.59 473.833 719.59 476.023V604.107C719.59 606.297 721.363 608.065 723.559 608.065H764.331C766.527 608.065 768.299 606.297 768.299 604.107V565.027C768.299 557.349 768.008 549.195 767.135 537.637L769.186 537.347L791.662 605.347C792.204 606.97 793.712 608.065 795.432 608.065H824.761C826.468 608.065 827.989 606.97 828.531 605.347L851.1 537.334L853.045 537.624C852.066 549.182 851.881 557.349 851.881 565.014V604.094C851.881 606.284 853.653 608.052 855.849 608.052H896.621C898.817 608.052 900.59 606.284 900.59 604.094V476.036C900.59 473.846 898.817 472.078 896.621 472.078H844.882C842.17 472.078 839.736 473.727 838.744 476.234L822.195 517.636H822.155Z",
+  "M949.601 476.656L909.776 602.906C908.974 605.453 910.868 608.065 913.538 608.065H953.758C955.586 608.065 957.164 606.812 957.598 605.044L960.452 593.209H1000.16L1003.01 605.044C1003.45 606.825 1005.03 608.065 1006.85 608.065H1050.64C1053.31 608.065 1055.22 605.453 1054.4 602.906L1014.22 476.656C1013.35 473.925 1010.81 472.065 1007.96 472.065H955.888C953.021 472.065 950.483 473.925 949.615 476.67L949.601 476.656ZM969.475 563.075C968.633 563.075 968.002 562.283 968.199 561.452L974.499 534.616C976.459 526.093 978.063 518.111 979.3 509.363C979.378 508.809 979.852 508.387 980.404 508.387C980.957 508.387 981.43 508.796 981.509 509.35C982.824 518.098 984.337 526.093 986.31 534.616L992.61 561.452C992.807 562.283 992.176 563.075 991.334 563.075H969.475Z",
+  "M1128.63 556.181H1147.12C1147.96 556.181 1148.58 556.971 1148.4 557.8C1145.91 569.488 1139.41 575.081 1128.55 575.081C1114.02 575.081 1106.94 564.815 1106.94 543.388V534.373C1106.94 513.538 1114.11 503.456 1128.84 503.456C1138.99 503.456 1145.11 508.194 1147.55 518.092C1148.03 520.013 1149.88 521.29 1151.86 521.04L1194.14 515.868C1196.37 515.591 1197.94 513.525 1197.56 511.314C1192.75 483.293 1171.22 469.065 1128.84 469.065C1079.52 469.065 1055.59 491.94 1055.59 539.321V539.703C1055.59 587.098 1073.8 610.065 1110.82 610.065C1135.84 610.065 1150.59 599.694 1160.66 578.227C1160.98 577.556 1161.75 577.227 1162.45 577.49C1163.16 577.766 1163.53 578.569 1163.27 579.293C1159.61 589.546 1157.74 597.548 1157.63 603.695C1157.6 605.866 1159.41 607.63 1161.58 607.63H1195.64C1197.83 607.63 1199.59 605.866 1199.59 603.682V532.017C1199.59 529.832 1197.83 528.068 1195.64 528.068H1128.63C1126.45 528.068 1124.68 529.832 1124.68 532.017V552.22C1124.68 554.405 1126.45 556.168 1128.63 556.168V556.181Z",
+  "M1260.58 528.065C1262.79 528.065 1264.59 529.84 1264.59 532.03V604.1C1264.59 606.29 1262.79 608.065 1260.58 608.065H1217.6C1215.39 608.065 1213.59 606.29 1213.59 604.1V532.03C1213.59 529.84 1215.39 528.065 1217.6 528.065H1260.58ZM1260.58 472.064C1262.8 472.064 1264.59 473.833 1264.59 476.023V502.69C1264.59 505.356 1262.57 507.599 1259.9 507.929L1218.1 513.035C1215.7 513.325 1213.59 511.478 1213.59 509.103V476.023C1213.59 473.833 1215.38 472.064 1217.6 472.064H1260.58Z",
+  "M701.657 528.065C703.829 528.065 705.59 529.84 705.59 532.03V604.1C705.59 606.29 703.829 608.065 701.657 608.065H659.522C657.351 608.065 655.59 606.289 655.59 604.1V532.03C655.59 529.84 657.351 528.066 659.522 528.065H701.657ZM701.657 472.064C703.833 472.064 705.59 473.834 705.59 476.024V509.102C705.59 511.49 703.518 513.325 701.172 513.034L659.038 507.781V507.795C657.072 507.544 655.59 505.854 655.59 503.861V476.024C655.59 473.834 657.347 472.065 659.522 472.064H701.657Z",
+];
+
+// ---------- Path flattening ----------
+// Warping needs every edge (straight ones included) to be densely sampled so it can bend.
+const STEP = 1.5; // sample spacing in source units
+
+function flatten(d) {
+  const toks = d.match(/[MmLlHhVvCcZz]|-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/g);
+  const subs = [];
+  let i = 0, cmd = null, cx = 0, cy = 0, sx = 0, sy = 0, cur = null;
+  const num = () => parseFloat(toks[i++]);
+  const isCmd = t => /[a-zA-Z]/.test(t);
+
+  const lineTo = (x, y) => {
+    const n = Math.max(1, Math.ceil(Math.hypot(x - cx, y - cy) / STEP));
+    for (let k = 1; k <= n; k++) cur.push([cx + (x - cx) * k / n, cy + (y - cy) * k / n]);
+    cx = x; cy = y;
+  };
+  const cubicTo = (x1, y1, x2, y2, x, y) => {
+    const len = Math.hypot(x1 - cx, y1 - cy) + Math.hypot(x2 - x1, y2 - y1) + Math.hypot(x - x2, y - y2);
+    const n = Math.max(2, Math.ceil(len / STEP));
+    for (let k = 1; k <= n; k++) {
+      const t = k / n, mt = 1 - t;
+      const a = mt * mt * mt, b = 3 * mt * mt * t, c = 3 * mt * t * t, e = t * t * t;
+      cur.push([a * cx + b * x1 + c * x2 + e * x, a * cy + b * y1 + c * y2 + e * y]);
+    }
+    cx = x; cy = y;
+  };
+
+  while (i < toks.length) {
+    if (isCmd(toks[i])) cmd = toks[i++];
+    const rel = cmd === cmd.toLowerCase();
+    const ox = rel ? cx : 0, oy = rel ? cy : 0;
+    switch (cmd.toUpperCase()) {
+      case 'M': {
+        const x = num() + ox, y = num() + oy;
+        cur = [[x, y]]; subs.push(cur);
+        cx = sx = x; cy = sy = y;
+        cmd = rel ? 'l' : 'L'; // implicit lineto for extra coordinate pairs
+        break;
+      }
+      case 'L': lineTo(num() + ox, num() + oy); break;
+      case 'H': lineTo(num() + ox, cy); break;
+      case 'V': lineTo(cx, num() + oy); break;
+      case 'C': cubicTo(num() + ox, num() + oy, num() + ox, num() + oy, num() + ox, num() + oy); break;
+      case 'Z': lineTo(sx, sy); cur.pop(); if (i < toks.length && !isCmd(toks[i])) i++; break;
+      default: i++;
+    }
+  }
+  return subs;
+}
+
+const SUBPATHS = GLYPHS.flatMap(flatten);
+
+// Bounding box of the wordmark = the warp envelope
+let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+for (const s of SUBPATHS) for (const [x, y] of s) {
+  if (x < minX) minX = x; if (x > maxX) maxX = x;
+  if (y < minY) minY = y; if (y > maxY) maxY = y;
+}
+const W = maxX - minX, H = maxY - minY;
+// Normalise once so warping is cheap per frame
+const NORM = SUBPATHS.map(s => s.map(([x, y]) => [(x - minX) / W, (y - minY) / H]));
+
+// ---------- State ----------
+const RANGE = 300;
+const BULGE_RANGE = 200;
+const state = {
+  tlx: 0, tly: 0, trx: 0, try: 0,
+  blx: 0, bly: 0, brx: 0, bry: 0,
+  top: 0, bottom: 0,
+};
+
+// ---------- Envelope warp ----------
+// Top and bottom edges run between their (displaced) corners and bow outward by
+// bulge * sin(πu). Each point is interpolated vertically between those two edges.
+function corners() {
+  return {
+    tl: [minX + state.tlx, minY + state.tly],
+    tr: [maxX + state.trx, minY + state.try],
+    bl: [minX + state.blx, maxY + state.bly],
+    br: [maxX + state.brx, maxY + state.bry],
+  };
+}
+
+function makeWarp() {
+  const { tl, tr, bl, br } = corners();
+  const bt = state.top, bb = state.bottom;
+  return (u, v) => {
+    const s = Math.sin(Math.PI * u);
+    const tx = tl[0] + (tr[0] - tl[0]) * u;
+    const ty = tl[1] + (tr[1] - tl[1]) * u - bt * s;
+    const bx = bl[0] + (br[0] - bl[0]) * u;
+    const by = bl[1] + (br[1] - bl[1]) * u + bb * s;
+    return [tx + (bx - tx) * v, ty + (by - ty) * v];
+  };
+}
+
+// ---------- Rendering ----------
+const svg = document.getElementById('stage');
+const markEl = document.getElementById('mark');
+const guideEl = document.getElementById('guide');
+const handlesEl = document.getElementById('handles');
+const PAD = Math.max(RANGE, BULGE_RANGE) + 40;
+svg.setAttribute('viewBox', `${minX - PAD} ${minY - PAD} ${W + PAD * 2} ${H + PAD * 2}`);
+svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+
+const f = n => n.toFixed(2);
+
+function buildMarkPath(warp) {
+  let d = '';
+  for (const s of NORM) {
+    d += 'M';
+    for (let k = 0; k < s.length; k++) {
+      const [x, y] = warp(s[k][0], s[k][1]);
+      d += (k ? 'L' : '') + f(x) + ' ' + f(y);
+    }
+    d += 'Z';
+  }
+  return d;
+}
+
+function buildGuidePath(warp) {
+  const N = 64, pts = [];
+  for (let k = 0; k <= N; k++) pts.push(warp(k / N, 0));
+  for (let k = N; k >= 0; k--) pts.push(warp(k / N, 1));
+  return 'M' + pts.map(p => f(p[0]) + ' ' + f(p[1])).join('L') + 'Z';
+}
+
+const HANDLE_KEYS = ['tl', 'tr', 'bl', 'br'];
+const handleEls = {};
+for (const k of HANDLE_KEYS) {
+  const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  c.setAttribute('class', 'handle');
+  c.dataset.corner = k;
+  handlesEl.appendChild(c);
+  handleEls[k] = c;
+}
+
+let raf = 0;
+function render() {
+  raf = 0;
+  const warp = makeWarp();
+  markEl.setAttribute('d', buildMarkPath(warp));
+  guideEl.setAttribute('d', buildGuidePath(warp));
+  // Keep handles a constant on-screen size
+  const scale = svg.getScreenCTM()?.a || 1;
+  const cs = corners();
+  for (const k of HANDLE_KEYS) {
+    handleEls[k].setAttribute('cx', cs[k][0]);
+    handleEls[k].setAttribute('cy', cs[k][1]);
+    handleEls[k].setAttribute('r', 5 / scale);
+  }
+}
+const schedule = () => { if (!raf) raf = requestAnimationFrame(render); };
+addEventListener('resize', schedule);
+
+// ---------- Controls ----------
+const inputs = {};
+function addRow(parent, key, label, min, max) {
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.innerHTML = `<span>${label}</span><input type="range" min="${min}" max="${max}" step="1" value="${state[key]}"><output>${state[key]}</output>`;
+  const input = row.querySelector('input'), out = row.querySelector('output');
+  input.addEventListener('input', () => setValue(key, +input.value));
+  input.addEventListener('dblclick', () => setValue(key, 0)); // double-click to zero
+  inputs[key] = { input, out };
+  parent.appendChild(row);
+}
+
+const linkEl = document.getElementById('link');
+function setValue(key, val, fromLink = false) {
+  state[key] = val;
+  inputs[key].input.value = val;
+  inputs[key].out.value = Math.round(val);
+  if (!fromLink && linkEl.checked && (key === 'top' || key === 'bottom')) {
+    setValue(key === 'top' ? 'bottom' : 'top', val, true);
+  }
+  schedule();
+}
+
+const cornerRows = document.getElementById('corner-rows');
+[['tl', 'TL'], ['tr', 'TR'], ['bl', 'BL'], ['br', 'BR']].forEach(([k, L]) => {
+  addRow(cornerRows, k + 'x', L + ' x', -RANGE, RANGE);
+  addRow(cornerRows, k + 'y', L + ' y', -RANGE, RANGE);
+});
+const bulgeRows = document.getElementById('bulge-rows');
+addRow(bulgeRows, 'top', 'Top', -BULGE_RANGE, BULGE_RANGE);
+addRow(bulgeRows, 'bottom', 'Bottom', -BULGE_RANGE, BULGE_RANGE);
+
+linkEl.addEventListener('change', () => { if (linkEl.checked) setValue('bottom', state.top, true); });
+
+document.getElementById('guides').addEventListener('change', e => {
+  document.body.classList.toggle('no-guides', !e.target.checked);
+});
+document.getElementById('reset').addEventListener('click', () => {
+  for (const k in state) setValue(k, 0, true);
+});
+const panel = document.getElementById('panel');
+document.getElementById('collapse').addEventListener('click', e => {
+  panel.classList.toggle('collapsed');
+  e.target.textContent = panel.classList.contains('collapsed') ? '+' : '–';
+});
+
+// ---------- Drag corner handles on the canvas ----------
+let drag = null;
+function toSvg(evt) {
+  const pt = svg.createSVGPoint();
+  pt.x = evt.clientX; pt.y = evt.clientY;
+  return pt.matrixTransform(svg.getScreenCTM().inverse());
+}
+handlesEl.addEventListener('pointerdown', e => {
+  const k = e.target.dataset?.corner;
+  if (!k) return;
+  const p = toSvg(e);
+  drag = { k, sx: p.x, sy: p.y, ox: state[k + 'x'], oy: state[k + 'y'] };
+  e.target.setPointerCapture(e.pointerId);
+});
+handlesEl.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const p = toSvg(e);
+  const clamp = v => Math.max(-RANGE, Math.min(RANGE, Math.round(v)));
+  setValue(drag.k + 'x', clamp(drag.ox + p.x - drag.sx));
+  setValue(drag.k + 'y', clamp(drag.oy + p.y - drag.sy));
+});
+const endDrag = () => { drag = null; };
+handlesEl.addEventListener('pointerup', endDrag);
+handlesEl.addEventListener('pointercancel', endDrag);
+
+// ---------- Export ----------
+document.getElementById('export').addEventListener('click', () => {
+  const warp = makeWarp();
+  const d = buildMarkPath(warp);
+  // Tight bounds of the warped shape
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const s of NORM) for (const [u, v] of s) {
+    const [x, y] = warp(u, v);
+    if (x < x0) x0 = x; if (x > x1) x1 = x;
+    if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  const w = x1 - x0, h = y1 - y0;
+  const out = `<svg xmlns="http://www.w3.org/2000/svg" width="${f(w)}" height="${f(h)}" viewBox="${f(x0)} ${f(y0)} ${f(w)} ${f(h)}"><path d="${d}" fill="#231F20"/></svg>`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([out], { type: 'image/svg+xml' }));
+  a.download = 'imagi-warp.svg';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+
+render();
+</script>
+</body>
+</html>
