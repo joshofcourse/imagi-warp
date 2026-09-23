@@ -29,6 +29,7 @@
     border: 1px solid var(--line); border-radius: 8px;
     box-shadow: 0 4px 16px rgba(0,0,0,0.06);
     padding: 8px 10px 10px; user-select: none;
+    max-height: calc(100vh - 24px); overflow-y: auto;
   }
   #panel header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
   #panel h1 { font-size: 11px; font-weight: 600; margin: 0; letter-spacing: 0.02em; }
@@ -40,9 +41,27 @@
   .group-title { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 3px; display: flex; justify-content: space-between; align-items: center; }
   .group-title label { text-transform: none; letter-spacing: 0; font-size: 10.5px; display: flex; align-items: center; gap: 3px; cursor: pointer; }
 
-  .row { display: grid; grid-template-columns: 38px 1fr 28px; align-items: center; gap: 6px; height: 18px; }
+  .row { display: grid; grid-template-columns: 38px 1fr 26px 12px; align-items: center; gap: 5px; height: 18px; }
   .row span:first-child { color: var(--muted); }
   .row output { text-align: right; font-variant-numeric: tabular-nums; }
+  .zero { border: 0; background: none; padding: 0; width: 12px; height: 12px; color: var(--ink); cursor: pointer; opacity: 0.55; display: grid; place-items: center; }
+  .zero:hover { opacity: 1; }
+  .zero.at-zero { opacity: 0.15; pointer-events: none; }
+  .zero svg { width: 10px; height: 10px; display: block; }
+
+  .slots { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+  .slot { position: relative; font: inherit; font-size: 10px; height: 22px; padding: 0; border: 1px dashed var(--line); border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; font-variant-numeric: tabular-nums; }
+  .slot:hover { border-color: var(--muted); }
+  .slot.filled { border-style: solid; background: rgba(35, 31, 32, 0.06); color: var(--ink); }
+  .slot.selected { border-color: var(--ink); }
+  .slot.playing { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .slot-actions { display: flex; gap: 4px; margin-top: 4px; }
+  .slot-actions button { flex: 1; font: inherit; font-size: 10px; padding: 3px 0; border: 1px solid var(--line); border-radius: 4px; background: #fff; color: var(--ink); cursor: pointer; }
+  .slot-actions button:hover:not(:disabled) { border-color: var(--muted); }
+  .slot-actions button:disabled { opacity: 0.35; cursor: default; }
+  #play { font-weight: 600; }
+  .row select { font: inherit; font-size: 10.5px; border: 1px solid var(--line); border-radius: 4px; background: #fff; color: var(--ink); padding: 1px 2px; grid-column: 2 / 5; height: 17px; }
+  .hint { color: var(--muted); font-size: 9.5px; margin-top: 4px; line-height: 1.35; }
 
   input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 14px; background: transparent; margin: 0; cursor: pointer; }
   input[type=range]::-webkit-slider-runnable-track { height: 2px; background: var(--line); border-radius: 1px; }
@@ -80,6 +99,17 @@
         <label title="Move top and bottom together"><input type="checkbox" id="link"> Link</label>
       </div>
       <div id="bulge-rows"></div>
+    </div>
+    <div class="group">
+      <div class="group-title">Slots</div>
+      <div class="slots" id="slots"></div>
+      <div class="slot-actions">
+        <button id="slot-save" title="Store current sliders in the selected slot">Save</button>
+        <button id="slot-clear" title="Empty the selected slot">Clear</button>
+        <button id="play" title="Loop through filled slots (Space)">▶ Play</button>
+      </div>
+      <div id="anim-rows"></div>
+      <div class="hint">Click a slot to select it. Filled slots load when clicked. Alt-click clears one.</div>
     </div>
     <div class="group">
       <div class="group-title">
@@ -260,27 +290,47 @@ const schedule = () => { if (!raf) raf = requestAnimationFrame(render); };
 addEventListener('resize', schedule);
 
 // ---------- Controls ----------
-const inputs = {};
-function addRow(parent, key, label, min, max) {
+const RESET_ICON = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4.5A4 4 0 1 1 2 7"/><path d="M2.5 1.5v3h3"/></svg>';
+
+// Generic compact slider row: label · range · value · reset icon
+function makeRow(parent, { label, min, max, step = 1, value, reset = 0, format = v => Math.round(v), onInput }) {
   const row = document.createElement('div');
   row.className = 'row';
-  row.innerHTML = `<span>${label}</span><input type="range" min="${min}" max="${max}" step="1" value="${state[key]}"><output>${state[key]}</output>`;
-  const input = row.querySelector('input'), out = row.querySelector('output');
-  input.addEventListener('input', () => setValue(key, +input.value));
-  input.addEventListener('dblclick', () => setValue(key, 0)); // double-click to zero
-  inputs[key] = { input, out };
+  row.innerHTML = `<span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${value}"><output></output><button class="zero" title="Reset to ${format(reset)}">${RESET_ICON}</button>`;
+  const input = row.querySelector('input'), out = row.querySelector('output'), zero = row.querySelector('.zero');
+  const show = v => {
+    input.value = v;
+    out.value = format(v);
+    zero.classList.toggle('at-zero', Math.abs(v - reset) < 1e-9);
+  };
+  input.addEventListener('input', () => onInput(+input.value));
+  input.addEventListener('dblclick', () => onInput(reset));
+  zero.addEventListener('click', () => onInput(reset));
   parent.appendChild(row);
+  show(value);
+  return { input, show };
+}
+
+const inputs = {};
+function addRow(parent, key, label, min, max) {
+  inputs[key] = makeRow(parent, {
+    label, min, max, value: state[key],
+    onInput: v => { stopPlayback(); setValue(key, v); },
+  });
 }
 
 const linkEl = document.getElementById('link');
 function setValue(key, val, fromLink = false) {
   state[key] = val;
-  inputs[key].input.value = val;
-  inputs[key].out.value = Math.round(val);
+  inputs[key].show(val);
   if (!fromLink && linkEl.checked && (key === 'top' || key === 'bottom')) {
     setValue(key === 'top' ? 'bottom' : 'top', val, true);
   }
   schedule();
+}
+// Apply a whole snapshot without the Link rule interfering
+function applyState(s) {
+  for (const k in state) setValue(k, s[k] ?? 0, true);
 }
 
 const cornerRows = document.getElementById('corner-rows');
@@ -298,8 +348,158 @@ document.getElementById('guides').addEventListener('change', e => {
   document.body.classList.toggle('no-guides', !e.target.checked);
 });
 document.getElementById('reset').addEventListener('click', () => {
+  stopPlayback();
   for (const k in state) setValue(k, 0, true);
 });
+
+// ---------- Slots + looping animation ----------
+const SLOT_COUNT = 6;
+const STORE_KEY = 'imagi-warp:v1';
+const slots = new Array(SLOT_COUNT).fill(null);
+const anim = { transition: 1.2, hold: 0.4, ease: 'inOut' };
+let selected = 0;
+
+const EASES = {
+  linear: t => t,
+  inOut: t => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2),
+  sine: t => -(Math.cos(Math.PI * t) - 1) / 2,
+  back: t => { const c = 1.70158 * 1.525; return t < 0.5 ? (Math.pow(2 * t, 2) * ((c + 1) * 2 * t - c)) / 2 : (Math.pow(2 * t - 2, 2) * ((c + 1) * (t * 2 - 2) + c) + 2) / 2; },
+};
+
+function persist() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify({ slots, anim })); } catch {}
+}
+try {
+  const saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+  if (saved) {
+    saved.slots?.forEach((s, i) => { if (i < SLOT_COUNT) slots[i] = s; });
+    Object.assign(anim, saved.anim);
+  }
+} catch {}
+
+const slotsEl = document.getElementById('slots');
+const slotBtns = [];
+for (let i = 0; i < SLOT_COUNT; i++) {
+  const b = document.createElement('button');
+  b.className = 'slot';
+  b.textContent = i + 1;
+  b.addEventListener('click', e => {
+    if (e.altKey) { slots[i] = null; persist(); refreshSlots(); return; }
+    selected = i;
+    if (slots[i]) { stopPlayback(); applyState(slots[i]); }
+    refreshSlots();
+  });
+  slotsEl.appendChild(b);
+  slotBtns.push(b);
+}
+
+const saveBtn = document.getElementById('slot-save');
+const clearBtn = document.getElementById('slot-clear');
+const playBtn = document.getElementById('play');
+
+function filledSlots() { return slots.map((s, i) => (s ? i : -1)).filter(i => i >= 0); }
+
+function refreshSlots(playingIdx = -1) {
+  slotBtns.forEach((b, i) => {
+    b.classList.toggle('filled', !!slots[i]);
+    b.classList.toggle('selected', i === selected);
+    b.classList.toggle('playing', i === playingIdx);
+    b.title = slots[i] ? `Slot ${i + 1}: click to load, Alt-click to clear` : `Slot ${i + 1}: empty — select, then Save`;
+  });
+  clearBtn.disabled = !slots[selected];
+  playBtn.disabled = filledSlots().length < 2 && !playing;
+}
+
+saveBtn.addEventListener('click', () => {
+  slots[selected] = { ...state };
+  // Jump selection to the next empty slot so saving a sequence is quick
+  const next = slots.findIndex((s, i) => !s && i > selected);
+  if (next >= 0) selected = next;
+  persist();
+  refreshSlots();
+});
+clearBtn.addEventListener('click', () => { slots[selected] = null; persist(); refreshSlots(); });
+
+// Timing controls
+const animRows = document.getElementById('anim-rows');
+animRows.style.marginTop = '6px';
+const transRow = makeRow(animRows, {
+  label: 'Tween', min: 0.1, max: 5, step: 0.1, value: anim.transition, reset: 1.2,
+  format: v => (+v).toFixed(1) + 's',
+  onInput: v => { anim.transition = v; transRow.show(v); persist(); },
+});
+const holdRow = makeRow(animRows, {
+  label: 'Hold', min: 0, max: 3, step: 0.1, value: anim.hold, reset: 0.4,
+  format: v => (+v).toFixed(1) + 's',
+  onInput: v => { anim.hold = v; holdRow.show(v); persist(); },
+});
+{
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.innerHTML = `<span>Ease</span><select>
+    <option value="inOut">Ease in-out</option>
+    <option value="sine">Sine</option>
+    <option value="back">Back (overshoot)</option>
+    <option value="linear">Linear</option>
+  </select>`;
+  const sel = row.querySelector('select');
+  sel.value = anim.ease;
+  sel.addEventListener('change', () => { anim.ease = sel.value; persist(); });
+  animRows.appendChild(row);
+}
+
+let playing = false, playRaf = 0, seg = 0, segStart = 0;
+
+function lerpState(a, b, t) {
+  const o = {};
+  for (const k in state) o[k] = a[k] + (b[k] - a[k]) * t;
+  return o;
+}
+
+function tick(now) {
+  const order = filledSlots();
+  if (order.length < 2) { stopPlayback(); return; }
+  const segLen = (anim.hold + anim.transition) * 1000;
+  while (now - segStart >= segLen) { segStart += segLen; seg++; }
+  const i = seg % order.length;
+  const from = slots[order[i]], to = slots[order[(i + 1) % order.length]];
+  const e = now - segStart - anim.hold * 1000;
+  if (e <= 0) {
+    applyState(from);
+    refreshSlots(order[i]);
+  } else {
+    applyState(lerpState(from, to, EASES[anim.ease](Math.min(1, e / (anim.transition * 1000)))));
+    refreshSlots(-1);
+  }
+  playRaf = requestAnimationFrame(tick);
+}
+
+function startPlayback() {
+  if (filledSlots().length < 2) return;
+  playing = true;
+  playBtn.textContent = '❚❚ Pause';
+  // Start from the selected slot if it's filled, otherwise the first filled one
+  const order = filledSlots();
+  seg = Math.max(0, order.indexOf(selected));
+  segStart = performance.now();
+  playRaf = requestAnimationFrame(tick);
+}
+function stopPlayback() {
+  if (!playing) return;
+  playing = false;
+  cancelAnimationFrame(playRaf);
+  playBtn.textContent = '▶ Play';
+  refreshSlots();
+}
+playBtn.addEventListener('click', () => (playing ? stopPlayback() : startPlayback()));
+addEventListener('keydown', e => {
+  if (e.code === 'Space' && !/INPUT|SELECT|BUTTON/.test(document.activeElement?.tagName)) {
+    e.preventDefault();
+    playing ? stopPlayback() : startPlayback();
+  }
+});
+
+refreshSlots();
 const panel = document.getElementById('panel');
 document.getElementById('collapse').addEventListener('click', e => {
   panel.classList.toggle('collapsed');
@@ -316,6 +516,7 @@ function toSvg(evt) {
 handlesEl.addEventListener('pointerdown', e => {
   const k = e.target.dataset?.corner;
   if (!k) return;
+  stopPlayback();
   const p = toSvg(e);
   drag = { k, sx: p.x, sy: p.y, ox: state[k + 'x'], oy: state[k + 'y'] };
   e.target.setPointerCapture(e.pointerId);
