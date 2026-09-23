@@ -24,7 +24,7 @@
   body.no-guides #guide, body.no-guides .handle { display: none; }
 
   #panel {
-    position: fixed; top: 12px; right: 12px; width: 196px;
+    position: fixed; top: 12px; right: 12px; width: 204px;
     background: var(--panel); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
     border: 1px solid var(--line); border-radius: 8px;
     box-shadow: 0 4px 16px rgba(0,0,0,0.06);
@@ -41,9 +41,11 @@
   .group-title { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 3px; display: flex; justify-content: space-between; align-items: center; }
   .group-title label { text-transform: none; letter-spacing: 0; font-size: 10.5px; display: flex; align-items: center; gap: 3px; cursor: pointer; }
 
-  .row { display: grid; grid-template-columns: 38px 1fr 26px 12px; align-items: center; gap: 5px; height: 18px; }
+  .row { display: grid; grid-template-columns: 42px 1fr 32px 12px; align-items: center; gap: 5px; height: 18px; }
   .row span:first-child { color: var(--muted); }
-  .row output { text-align: right; font-variant-numeric: tabular-nums; }
+  .num { width: 100%; font: inherit; font-variant-numeric: tabular-nums; text-align: right; color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: 3px; padding: 0 2px; height: 16px; outline: none; user-select: text; -webkit-user-select: text; }
+  .num:hover { border-color: var(--line); }
+  .num:focus { border-color: var(--accent); background: #fff; }
   .zero { border: 0; background: none; padding: 0; width: 12px; height: 12px; color: var(--ink); cursor: pointer; opacity: 0.55; display: grid; place-items: center; }
   .zero:hover { opacity: 1; }
   .zero.at-zero { opacity: 0.15; pointer-events: none; }
@@ -61,6 +63,17 @@
   .slot-actions button:disabled { opacity: 0.35; cursor: default; }
   #play { font-weight: 600; }
   .row select { font: inherit; font-size: 10.5px; border: 1px solid var(--line); border-radius: 4px; background: #fff; color: var(--ink); padding: 1px 2px; grid-column: 2 / 5; height: 17px; }
+  .curve { margin-top: 6px; }
+  .curve svg { display: block; width: 100%; height: auto; background: rgba(35, 31, 32, 0.03); border: 1px solid var(--line); border-radius: 5px; touch-action: none; cursor: crosshair; }
+  .curve .unit { fill: none; stroke: var(--line); stroke-width: 1; }
+  .curve .diag { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 3; }
+  .curve .arm { stroke: var(--accent); stroke-width: 1; opacity: 0.7; }
+  .curve .bez { fill: none; stroke: var(--ink); stroke-width: 1.75; }
+  .curve .cp { fill: #fff; stroke: var(--accent); stroke-width: 1.5; cursor: grab; }
+  .curve .cp:hover { fill: var(--accent); }
+  .curve .playhead { fill: var(--accent); pointer-events: none; }
+  .curve-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 3px; }
+  .curve-foot code { font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); user-select: text; }
   .hint { color: var(--muted); font-size: 9.5px; margin-top: 4px; line-height: 1.35; }
 
   input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 14px; background: transparent; margin: 0; cursor: pointer; }
@@ -292,20 +305,42 @@ addEventListener('resize', schedule);
 // ---------- Controls ----------
 const RESET_ICON = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4.5A4 4 0 1 1 2 7"/><path d="M2.5 1.5v3h3"/></svg>';
 
-// Generic compact slider row: label · range · value · reset icon
+// Generic compact slider row: label · range · editable number · reset icon
 function makeRow(parent, { label, min, max, step = 1, value, reset = 0, format = v => Math.round(v), onInput }) {
   const row = document.createElement('div');
   row.className = 'row';
-  row.innerHTML = `<span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${value}"><output></output><button class="zero" title="Reset to ${format(reset)}">${RESET_ICON}</button>`;
-  const input = row.querySelector('input'), out = row.querySelector('output'), zero = row.querySelector('.zero');
+  row.innerHTML = `<span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${value}"><input class="num" type="text" inputmode="decimal" spellcheck="false" title="Type a value (${min} to ${max}). ↑/↓ nudges, Shift ×10"><button class="zero" title="Reset to ${format(reset)}">${RESET_ICON}</button>`;
+  const input = row.querySelector('input[type=range]'), num = row.querySelector('.num'), zero = row.querySelector('.zero');
+  const clamp = v => Math.max(min, Math.min(max, v));
+  const snap = v => Math.round(v / step) * step;
+  let current = value;
   const show = v => {
+    current = v;
     input.value = v;
-    out.value = format(v);
+    if (document.activeElement !== num) num.value = format(v); // don't clobber typing
     zero.classList.toggle('at-zero', Math.abs(v - reset) < 1e-9);
+  };
+  const commit = () => {
+    const v = parseFloat(num.value.replace(',', '.'));
+    if (Number.isFinite(v)) onInput(clamp(+snap(v).toFixed(4)));
+    num.value = format(current);
   };
   input.addEventListener('input', () => onInput(+input.value));
   input.addEventListener('dblclick', () => onInput(reset));
   zero.addEventListener('click', () => onInput(reset));
+  num.addEventListener('focus', () => num.select());
+  num.addEventListener('blur', commit);
+  num.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { commit(); num.blur(); }
+    else if (e.key === 'Escape') { num.value = format(current); num.blur(); }
+    else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      const d = (e.key === 'ArrowUp' ? 1 : -1) * step * (e.shiftKey ? 10 : 1);
+      onInput(clamp(+(current + d).toFixed(4)));
+      num.value = format(current);
+      num.select();
+    }
+  });
   parent.appendChild(row);
   show(value);
   return { input, show };
@@ -356,15 +391,46 @@ document.getElementById('reset').addEventListener('click', () => {
 const SLOT_COUNT = 6;
 const STORE_KEY = 'imagi-warp:v1';
 const slots = new Array(SLOT_COUNT).fill(null);
-const anim = { transition: 1.2, hold: 0.4, ease: 'inOut' };
+// Every ease is a cubic-bezier (same model as CSS), so presets can be tweaked in the curve editor
+const PRESETS = {
+  inOut:  [0.65, 0, 0.35, 1],
+  sine:   [0.37, 0, 0.63, 1],
+  back:   [0.68, -0.6, 0.32, 1.6],
+  out:    [0.16, 1, 0.3, 1],
+  in:     [0.7, 0, 0.84, 0],
+  linear: [0, 0, 1, 1],
+};
+const anim = { transition: 1.2, hold: 0.4, ease: 'inOut', curve: [...PRESETS.inOut] };
 let selected = 0;
 
-const EASES = {
-  linear: t => t,
-  inOut: t => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2),
-  sine: t => -(Math.cos(Math.PI * t) - 1) / 2,
-  back: t => { const c = 1.70158 * 1.525; return t < 0.5 ? (Math.pow(2 * t, 2) * ((c + 1) * 2 * t - c)) / 2 : (Math.pow(2 * t - 2, 2) * ((c + 1) * (t * 2 - 2) + c) + 2) / 2; },
-};
+// Solve y for a given x on a cubic-bezier from (0,0) to (1,1)
+function bezierEase([x1, y1, x2, y2]) {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+  const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const X = t => ((ax * t + bx) * t + cx) * t;
+  const dX = t => (3 * ax * t + 2 * bx) * t + cx;
+  const Y = t => ((ay * t + by) * t + cy) * t;
+  return x => {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    let t = x;
+    for (let k = 0; k < 8; k++) {
+      const err = X(t) - x, d = dX(t);
+      if (Math.abs(err) < 1e-6) return Y(t);
+      if (Math.abs(d) < 1e-6) break;
+      t -= err / d;
+    }
+    // Newton stalled: fall back to bisection
+    let lo = 0, hi = 1; t = x;
+    for (let k = 0; k < 30; k++) {
+      const v = X(t);
+      if (Math.abs(v - x) < 1e-6) break;
+      if (v < x) lo = t; else hi = t;
+      t = (lo + hi) / 2;
+    }
+    return Y(t);
+  };
+}
 
 function persist() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify({ slots, anim })); } catch {}
@@ -376,6 +442,8 @@ try {
     Object.assign(anim, saved.anim);
   }
 } catch {}
+if (!Array.isArray(anim.curve) || anim.curve.length !== 4) anim.curve = [...(PRESETS[anim.ease] || PRESETS.inOut)];
+let easeFn = bezierEase(anim.curve);
 
 const slotsEl = document.getElementById('slots');
 const slotBtns = [];
@@ -424,29 +492,142 @@ clearBtn.addEventListener('click', () => { slots[selected] = null; persist(); re
 const animRows = document.getElementById('anim-rows');
 animRows.style.marginTop = '6px';
 const transRow = makeRow(animRows, {
-  label: 'Tween', min: 0.1, max: 5, step: 0.1, value: anim.transition, reset: 1.2,
-  format: v => (+v).toFixed(1) + 's',
+  label: 'Tween s', min: 0.1, max: 5, step: 0.1, value: anim.transition, reset: 1.2,
+  format: v => (+v).toFixed(1),
   onInput: v => { anim.transition = v; transRow.show(v); persist(); },
 });
 const holdRow = makeRow(animRows, {
-  label: 'Hold', min: 0, max: 3, step: 0.1, value: anim.hold, reset: 0.4,
-  format: v => (+v).toFixed(1) + 's',
+  label: 'Hold s', min: 0, max: 3, step: 0.1, value: anim.hold, reset: 0.4,
+  format: v => (+v).toFixed(1),
   onInput: v => { anim.hold = v; holdRow.show(v); persist(); },
 });
+const easeRow = document.createElement('div');
+easeRow.className = 'row';
+easeRow.innerHTML = `<span>Ease</span><select>
+  <option value="inOut">Ease in-out</option>
+  <option value="sine">Sine</option>
+  <option value="back">Back (overshoot)</option>
+  <option value="out">Ease out</option>
+  <option value="in">Ease in</option>
+  <option value="linear">Linear</option>
+  <option value="custom">Custom</option>
+</select>`;
+const easeSel = easeRow.querySelector('select');
+animRows.appendChild(easeRow);
+
+// ---------- Curve editor ----------
+// Drag the two control points. x is clamped to 0–1 (time), y may overshoot.
+const CE = { w: 176, h: 132, pad: 10, yMin: -0.4, yMax: 1.4 };
+const cePx = (x, y) => [
+  CE.pad + x * (CE.w - CE.pad * 2),
+  CE.pad + (CE.yMax - y) / (CE.yMax - CE.yMin) * (CE.h - CE.pad * 2),
+];
+const ceVal = (px, py) => [
+  (px - CE.pad) / (CE.w - CE.pad * 2),
+  CE.yMax - (py - CE.pad) / (CE.h - CE.pad * 2) * (CE.yMax - CE.yMin),
+];
+
+const curveWrap = document.createElement('div');
+curveWrap.className = 'curve';
+curveWrap.innerHTML = `
+  <svg viewBox="0 0 ${CE.w} ${CE.h}" width="${CE.w}" height="${CE.h}">
+    <rect class="unit"/>
+    <line class="diag"/>
+    <line class="arm" data-i="0"/><line class="arm" data-i="1"/>
+    <path class="bez"/>
+    <circle class="playhead" r="3"/>
+    <circle class="cp" data-i="0" r="4.5"/><circle class="cp" data-i="1" r="4.5"/>
+  </svg>
+  <div class="curve-foot"><code></code><button class="zero" title="Back to the selected preset">${RESET_ICON}</button></div>`;
+animRows.appendChild(curveWrap);
+
+const ceSvg = curveWrap.querySelector('svg');
+const ceArms = curveWrap.querySelectorAll('.arm');
+const ceCps = curveWrap.querySelectorAll('.cp');
+const ceBez = curveWrap.querySelector('.bez');
+const cePlay = curveWrap.querySelector('.playhead');
+const ceCode = curveWrap.querySelector('code');
+const ceReset = curveWrap.querySelector('.zero');
+let lastPreset = PRESETS[anim.ease] ? anim.ease : 'inOut';
 {
-  const row = document.createElement('div');
-  row.className = 'row';
-  row.innerHTML = `<span>Ease</span><select>
-    <option value="inOut">Ease in-out</option>
-    <option value="sine">Sine</option>
-    <option value="back">Back (overshoot)</option>
-    <option value="linear">Linear</option>
-  </select>`;
-  const sel = row.querySelector('select');
-  sel.value = anim.ease;
-  sel.addEventListener('change', () => { anim.ease = sel.value; persist(); });
-  animRows.appendChild(row);
+  const [ux0, uy0] = cePx(0, 1), [ux1, uy1] = cePx(1, 0);
+  const unit = curveWrap.querySelector('.unit');
+  unit.setAttribute('x', ux0); unit.setAttribute('y', uy0);
+  unit.setAttribute('width', ux1 - ux0); unit.setAttribute('height', uy1 - uy0);
+  const diag = curveWrap.querySelector('.diag');
+  diag.setAttribute('x1', ux0); diag.setAttribute('y1', uy1);
+  diag.setAttribute('x2', ux1); diag.setAttribute('y2', uy0);
 }
+
+const r2 = n => Math.round(n * 100) / 100;
+function drawCurve() {
+  const [x1, y1, x2, y2] = anim.curve;
+  const p0 = cePx(0, 0), p1 = cePx(x1, y1), p2 = cePx(x2, y2), p3 = cePx(1, 1);
+  ceBez.setAttribute('d', `M${p0}C${p1} ${p2} ${p3}`);
+  [[p0, p1], [p3, p2]].forEach(([a, b], i) => {
+    ceArms[i].setAttribute('x1', a[0]); ceArms[i].setAttribute('y1', a[1]);
+    ceArms[i].setAttribute('x2', b[0]); ceArms[i].setAttribute('y2', b[1]);
+    ceCps[i].setAttribute('cx', b[0]); ceCps[i].setAttribute('cy', b[1]);
+  });
+  ceCode.textContent = anim.curve.map(r2).join(', ');
+  easeSel.value = anim.ease;
+  const preset = PRESETS[lastPreset];
+  ceReset.classList.toggle('at-zero', anim.curve.every((v, i) => Math.abs(v - preset[i]) < 1e-9));
+}
+function setCurve(curve, ease) {
+  anim.curve = curve;
+  anim.ease = ease;
+  if (PRESETS[ease]) lastPreset = ease;
+  easeFn = bezierEase(curve);
+  drawCurve();
+  persist();
+}
+
+easeSel.addEventListener('change', () => {
+  if (easeSel.value === 'custom') { anim.ease = 'custom'; persist(); drawCurve(); return; }
+  setCurve([...PRESETS[easeSel.value]], easeSel.value);
+});
+ceReset.addEventListener('click', () => setCurve([...PRESETS[lastPreset]], lastPreset));
+
+let ceDrag = -1;
+function cePointer(e) {
+  const r = ceSvg.getBoundingClientRect();
+  return ceVal((e.clientX - r.left) * CE.w / r.width, (e.clientY - r.top) * CE.h / r.height);
+}
+ceSvg.addEventListener('pointerdown', e => {
+  let i = e.target.classList.contains('cp') ? +e.target.dataset.i : -1;
+  if (i < 0) {
+    // Clicking the empty graph grabs the nearest control point
+    const [x, y] = cePointer(e), c = anim.curve;
+    i = Math.hypot(x - c[0], y - c[1]) <= Math.hypot(x - c[2], y - c[3]) ? 0 : 1;
+  }
+  ceDrag = i;
+  ceSvg.setPointerCapture(e.pointerId);
+  ceMove(e);
+});
+function ceMove(e) {
+  if (ceDrag < 0) return;
+  let [x, y] = cePointer(e);
+  x = Math.max(0, Math.min(1, x));
+  y = Math.max(CE.yMin, Math.min(CE.yMax, y));
+  if (!e.shiftKey) { x = Math.round(x * 100) / 100; y = Math.round(y * 100) / 100; }
+  const c = [...anim.curve];
+  c[ceDrag * 2] = x; c[ceDrag * 2 + 1] = y;
+  setCurve(c, 'custom');
+}
+ceSvg.addEventListener('pointermove', ceMove);
+const ceEnd = () => { ceDrag = -1; };
+ceSvg.addEventListener('pointerup', ceEnd);
+ceSvg.addEventListener('pointercancel', ceEnd);
+
+function showPlayhead(p) {
+  if (p == null) { cePlay.style.display = 'none'; return; }
+  const [x, y] = cePx(p, easeFn(p));
+  cePlay.style.display = '';
+  cePlay.setAttribute('cx', x); cePlay.setAttribute('cy', y);
+}
+showPlayhead(null);
+drawCurve();
 
 let playing = false, playRaf = 0, seg = 0, segStart = 0;
 
@@ -467,9 +648,12 @@ function tick(now) {
   if (e <= 0) {
     applyState(from);
     refreshSlots(order[i]);
+    showPlayhead(null);
   } else {
-    applyState(lerpState(from, to, EASES[anim.ease](Math.min(1, e / (anim.transition * 1000)))));
+    const p = Math.min(1, e / (anim.transition * 1000));
+    applyState(lerpState(from, to, easeFn(p)));
     refreshSlots(-1);
+    showPlayhead(p);
   }
   playRaf = requestAnimationFrame(tick);
 }
